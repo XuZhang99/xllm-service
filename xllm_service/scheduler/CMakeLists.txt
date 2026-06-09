@@ -12,8 +12,8 @@ cc_library(
   SRCS
     xllm_chat_parse_bridge.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/base_format_detector.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/qwen25_detector.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/qwen3_coder_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/qwen25_detector.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/kimik2_detector.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/deepseekv3_detector.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/deepseekv32_detector.cpp
@@ -53,6 +53,7 @@ cc_library(
     response_handler.cpp
     scheduler.cpp
   DEPS
+    :anthropic_adapter
     :chat_template
     :common
     :etcd_client

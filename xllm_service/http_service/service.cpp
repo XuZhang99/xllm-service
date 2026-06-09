@@ -34,6 +34,8 @@ limitations under the License.
 #include "common/xllm/status.h"
 #include "common/xllm/uuid.h"
 #include "completion.pb.h"
+#include "http_service/anthropic_adapter.h"
+#include "http_service/chat_json_parser.h"
 #include "scheduler/scheduler.h"
 #include "xllm_service.pb.h"
 
@@ -252,6 +254,8 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
     stub.Completions(redirect_cntl, &req_pb, nullptr, done);
   } else if constexpr (std::is_same_v<T, ChatCallData>) {
     stub.ChatCompletions(redirect_cntl, &req_pb, nullptr, done);
+  } else if constexpr (std::is_same_v<T, AnthropicCallData>) {
+    stub.ChatCompletions(redirect_cntl, &req_pb, nullptr, done);
   } else {
     delete redirect_cntl;
     delete done;
@@ -445,10 +449,17 @@ void XllmHttpServiceImpl::ChatCompletions(
   std::string attachment;
   cntl->request_attachment().copy_to(&attachment, content_len, 0);
 
+  auto chat_json = normalize_chat_json(std::move(attachment));
+  if (!chat_json.ok) {
+    cntl->SetFailed(chat_json.error);
+    LOG(ERROR) << "normalize chat json failed: " << chat_json.error;
+    return;
+  }
+
   google::protobuf::util::JsonParseOptions options;
   options.ignore_unknown_fields = true;
-  auto status =
-      google::protobuf::util::JsonStringToMessage(attachment, req_pb, options);
+  auto status = google::protobuf::util::JsonStringToMessage(
+      chat_json.json, req_pb, options);
   if (!status.ok()) {
     cntl->SetFailed(status.ToString());
     LOG(ERROR) << "parse json to proto failed: " << status.ToString();
@@ -494,6 +505,83 @@ void XllmHttpServiceImpl::ChatCompletions(
 
   auto call_data = std::make_shared<ChatCallData>(
       cntl, service_request->stream, done_guard.release(), req_pb, resp_pb);
+  handle(call_data, service_request);
+}
+
+void XllmHttpServiceImpl::AnthropicMessages(
+    ::google::protobuf::RpcController* controller,
+    const proto::HttpRequest* request,
+    proto::HttpResponse* response,
+    ::google::protobuf::Closure* done) {
+  assert(initialized_);
+  ClosureGuard done_guard(done);
+  auto cntl = reinterpret_cast<brpc::Controller*>(controller);
+
+  if (!request || !response || !controller) {
+    LOG(ERROR) << "brpc request | respose | controller is null";
+    cntl->SetFailed("brpc request | respose | controller is null");
+    return;
+  }
+
+  auto arena = response->GetArena();
+  auto anthropic_req_pb = google::protobuf::Arena::CreateMessage<
+      ::xllm::proto::AnthropicMessagesRequest>(arena);
+  auto req_pb =
+      google::protobuf::Arena::CreateMessage<::xllm::proto::ChatRequest>(arena);
+  auto resp_pb = google::protobuf::Arena::CreateMessage<
+      ::xllm::proto::AnthropicMessagesResponse>(arena);
+
+  auto content_len = GetJsonContentLength(cntl);
+  std::string attachment;
+  cntl->request_attachment().copy_to(&attachment, content_len, 0);
+
+  auto parse_result =
+      parse_anthropic_json(std::move(attachment), anthropic_req_pb);
+  if (!parse_result.ok) {
+    cntl->SetFailed(parse_result.error);
+    LOG(ERROR) << "parse anthropic json failed: " << parse_result.error;
+    return;
+  }
+
+  ChatMessages messages;
+  auto adapt_result = fill_chat_req(*anthropic_req_pb, req_pb, &messages);
+  if (!adapt_result.ok) {
+    cntl->SetFailed(adapt_result.error);
+    LOG(ERROR) << "adapt anthropic request failed: " << adapt_result.error;
+    return;
+  }
+  req_pb->set_request_id(new_anthropic_id());
+
+  auto service_request = generate_request(req_pb, "/v1/messages");
+  service_request->messages = std::move(messages);
+  service_request->tools = parse_tools_from_proto(req_pb->tools());
+  if (req_pb->has_tool_choice()) {
+    service_request->tool_choice = req_pb->tool_choice();
+  }
+
+  if (!scheduler_->schedule(service_request)) {
+    cntl->SetFailed("Schedule request failed!");
+    LOG(ERROR) << "Schedule request failed!";
+    return;
+  }
+
+  req_pb->set_service_request_id(service_request->service_request_id);
+  req_pb->set_source_xservice_addr(options_.service_name());
+  req_pb->mutable_token_ids()->Add(service_request->token_ids.begin(),
+                                   service_request->token_ids.end());
+  req_pb->mutable_routing()->set_prefill_name(
+      service_request->routing.prefill_name);
+  req_pb->mutable_routing()->set_decode_name(
+      service_request->routing.decode_name);
+
+  auto call_data = std::make_shared<AnthropicCallData>(
+      cntl, service_request->stream, done_guard.release(), req_pb, resp_pb);
+  if (!call_data->x_request_id.empty()) {
+    req_pb->set_x_request_id(call_data->x_request_id);
+  }
+  if (!call_data->x_request_time.empty()) {
+    req_pb->set_x_request_time(call_data->x_request_time);
+  }
   handle(call_data, service_request);
 }
 
