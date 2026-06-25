@@ -17,15 +17,15 @@ limitations under the License.
 
 #include <string>
 
-#include "chat.pb.h"
 #include "chat_template/jinja_chat_template.h"
-#include "chat_template/mm_content_text.h"
 
 namespace xllm_service {
 
-// Projects a canonical Message onto the lossy proto ChatMessage transport.
-// Writes into the pre-allocated `out` (arena friendly). Pure projection: it
-// reproduces, field for field, what the request path used to build by hand.
-void to_proto(const Message& msg, xllm::proto::ChatMessage* out);
+// Torch-free helpers over a multimodal content vector, in a standalone header
+// so callers can reuse them without pulling in xllm/torch headers.
+
+std::string flat_text(const Message::MMContentVec& blocks);
+
+bool needs_content_vec(const Message::MMContentVec& blocks);
 
 }  // namespace xllm_service

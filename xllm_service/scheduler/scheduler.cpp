@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "scheduler/scheduler.h"
 
+#include "chat_template/deepseek_v4_cpp_chat_template.h"
+#include "chat_template/model_type.h"
 #include "common/metrics.h"
 #include "common/utils.h"
 #include "common/xllm/status.h"
@@ -42,7 +44,22 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
   if (options_.default_backend_type() != "vllm") {
     tokenizer_ = TokenizerFactory::create_tokenizer(options_.tokenizer_path(),
                                                     &tokenizer_args_);
-    chat_template_ = std::make_unique<JinjaChatTemplate>(tokenizer_args_);
+
+    // Select the chat template by config.json model_type (jinja by default).
+    const auto model_type = load_model_type(options_.tokenizer_path());
+    switch (select_chat_template_kind(model_type)) {
+      case ChatTemplateKind::kDeepseekV4Cpp:
+        chat_template_ =
+            std::make_unique<DeepseekV4CppChatTemplate>(tokenizer_args_);
+        LOG(INFO) << "Selected DeepseekV4CppChatTemplate (model_type="
+                  << model_type.value_or("") << ").";
+        break;
+      case ChatTemplateKind::kJinja:
+        chat_template_ = std::make_unique<JinjaChatTemplate>(tokenizer_args_);
+        LOG(INFO) << "Selected JinjaChatTemplate (model_type="
+                  << model_type.value_or("") << ").";
+        break;
+    }
   }
 
   const std::string etcd_username =
@@ -140,7 +157,14 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
 
   // encode prompt
   if (!is_vllm && request->prompt.size() != 0) {
-    if (!get_tls_tokenizer()->encode(request->prompt, &request->token_ids)) {
+    if (chat_template_ == nullptr) {
+      LOG(ERROR) << "Chat template has not configured.";
+      return false;
+    }
+    if (!get_tls_tokenizer()->encode(
+            request->prompt,
+            &request->token_ids,
+            chat_template_->encode_add_special_tokens())) {
       LOG(ERROR) << "Encode prompt failed: " << request->prompt;
       return false;
     }

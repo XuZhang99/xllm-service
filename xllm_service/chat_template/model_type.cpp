@@ -13,19 +13,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#pragma once
+#include "chat_template/model_type.h"
 
-#include <string>
-
-#include "chat.pb.h"
-#include "chat_template/jinja_chat_template.h"
-#include "chat_template/mm_content_text.h"
+#include "common/json_reader.h"
 
 namespace xllm_service {
 
-// Projects a canonical Message onto the lossy proto ChatMessage transport.
-// Writes into the pre-allocated `out` (arena friendly). Pure projection: it
-// reproduces, field for field, what the request path used to build by hand.
-void to_proto(const Message& msg, xllm::proto::ChatMessage* out);
+ChatTemplateKind select_chat_template_kind(
+    const std::optional<std::string>& model_type) {
+  if (model_type == "deepseek_v4") {
+    return ChatTemplateKind::kDeepseekV4Cpp;
+  }
+  return ChatTemplateKind::kJinja;
+}
+
+std::optional<std::string> load_model_type(
+    const std::string& model_weights_path) {
+  JsonReader reader;
+  if (!reader.parse(model_weights_path + "/config.json")) {
+    return std::nullopt;
+  }
+  return reader.value<std::string>("model_type");
+}
 
 }  // namespace xllm_service

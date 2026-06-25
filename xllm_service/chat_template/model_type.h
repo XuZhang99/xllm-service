@@ -15,17 +15,20 @@ limitations under the License.
 
 #pragma once
 
+#include <optional>
 #include <string>
-
-#include "chat.pb.h"
-#include "chat_template/jinja_chat_template.h"
-#include "chat_template/mm_content_text.h"
 
 namespace xllm_service {
 
-// Projects a canonical Message onto the lossy proto ChatMessage transport.
-// Writes into the pre-allocated `out` (arena friendly). Pure projection: it
-// reproduces, field for field, what the request path used to build by hand.
-void to_proto(const Message& msg, xllm::proto::ChatMessage* out);
+enum class ChatTemplateKind {
+  kJinja,
+  kDeepseekV4Cpp,
+};
+
+ChatTemplateKind select_chat_template_kind(
+    const std::optional<std::string>& model_type);
+
+std::optional<std::string> load_model_type(
+    const std::string& model_weights_path);
 
 }  // namespace xllm_service

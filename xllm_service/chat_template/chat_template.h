@@ -15,17 +15,30 @@ limitations under the License.
 
 #pragma once
 
+#include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
+#include <vector>
 
-#include "chat.pb.h"
-#include "chat_template/jinja_chat_template.h"
-#include "chat_template/mm_content_text.h"
+#include "common/types.h"
 
 namespace xllm_service {
 
-// Projects a canonical Message onto the lossy proto ChatMessage transport.
-// Writes into the pre-allocated `out` (arena friendly). Pure projection: it
-// reproduces, field for field, what the request path used to build by hand.
-void to_proto(const Message& msg, xllm::proto::ChatMessage* out);
+struct Message;
+using ChatMessages = std::vector<Message>;
+
+// Renders messages/tools into a prompt.
+class ChatTemplate {
+ public:
+  virtual ~ChatTemplate() = default;
+
+  virtual std::optional<std::string> apply(
+      const ChatMessages& messages,
+      const std::vector<JsonTool>& json_tools,
+      const nlohmann::ordered_json& chat_template_kwargs) const = 0;
+
+  // Whether the tokenizer should add special tokens when encoding the prompt.
+  virtual bool encode_add_special_tokens() const = 0;
+};
 
 }  // namespace xllm_service
