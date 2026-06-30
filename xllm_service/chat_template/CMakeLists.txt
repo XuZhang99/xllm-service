@@ -76,7 +76,6 @@ cc_library (
     ${CMAKE_SOURCE_DIR}/third_party/xllm
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/core
-    ${TORCH_HEADER_INCLUDE_DIRS}
   DEPS
     :chat_template
     :message_projection
@@ -85,3 +84,16 @@ cc_library (
     proto_xllm
 )
 target_link_libraries(deepseek_v4_cpp_chat_template PUBLIC brpc-static leveldb::leveldb ZLIB::ZLIB protobuf::libprotobuf OpenSSL::SSL OpenSSL::Crypto)
+
+# Torch ships its own protobuf 3.13 headers. Adding torch via a plain -I would
+# let them shadow vcpkg's protobuf 3.21 headers that the generated .pb.h files
+# require, breaking the build. Add torch dirs with -idirafter so they sit at the
+# very end of the search path: <google/protobuf/...> resolves to vcpkg's copy,
+# while torch-only headers (<torch/torch.h>) still resolve as a fallback. The
+# "SHELL:" prefix keeps each "-idirafter <dir>" pair intact and stops CMake from
+# de-duplicating the repeated -idirafter flag.
+set(_torch_idirafter_opts "")
+foreach(_torch_dir IN LISTS TORCH_HEADER_INCLUDE_DIRS)
+  list(APPEND _torch_idirafter_opts "SHELL:-idirafter ${_torch_dir}")
+endforeach()
+target_compile_options(deepseek_v4_cpp_chat_template PRIVATE ${_torch_idirafter_opts})
