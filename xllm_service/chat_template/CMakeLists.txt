@@ -83,6 +83,7 @@ cc_library (
     nlohmann_json::nlohmann_json
     proto_xllm
 )
+target_compile_features(deepseek_v4_cpp_chat_template PRIVATE cxx_std_20)
 target_link_libraries(deepseek_v4_cpp_chat_template PUBLIC brpc-static leveldb::leveldb ZLIB::ZLIB protobuf::libprotobuf OpenSSL::SSL OpenSSL::Crypto)
 
 # Torch ships its own protobuf 3.13 headers. Adding torch via a plain -I would
